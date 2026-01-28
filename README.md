@@ -1,5 +1,5 @@
 
-# 🏡 蜜蜂狗农场 (Mifenggou Farm)
+# 🏡 蜜蜂狗农场 (BeeDogFarm)
 
 **一个基于 React + Three.js + Supabase 构建的多人在线种田模拟游戏。**
 
@@ -71,8 +71,8 @@
 ### 2. 克隆项目与安装依赖
 
 ```bash
-git clone https://github.com/your-username/mifenggou-homestead.git
-cd mifenggou-homestead
+git clone https://github.com/JasonItem/beedog-farm.git
+cd beedog-farm
 npm install
 ```
 
@@ -113,7 +113,7 @@ export const SUPABASE_ANON_KEY = '你的_Supabase_Anon_Key';
 npm run dev
 ```
 
-打开浏览器访问 `http://localhost:5173` 即可开始游戏。
+打开浏览器访问 `http://localhost:3000` 即可开始游戏。
 
 ### 7. 部署上线 (Vercel/Netlify)
 
