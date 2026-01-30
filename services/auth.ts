@@ -1,5 +1,30 @@
+
 import { supabase } from '../lib/supabase';
 import { User } from '../types';
+
+// Helper: 生成默认的用户档案数据
+const getDefaultProfile = (id: string, email: string) => ({
+  id,
+  name: email.split('@')[0] || '冒险家',
+  avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${id}`,
+  bio: '新来的冒险家',
+  points: 100,
+  exp: 0,
+  level: 1,
+  friends: 0,
+  coins: 100,
+  energy: 100,
+  maxEnergy: 100,
+  day: 1
+});
+
+// Helper: 将 DB 返回的 snake_case 对象转换为 App 使用的 User 对象
+const mapProfileToUser = (profile: any, email?: string): User => ({
+  ...profile,
+  email: email || profile.email,
+  exp: profile.exp || 0,
+  maxEnergy: profile.max_energy || profile.maxEnergy || 100 // Handle snake_case from DB
+});
 
 export const authService = {
   // Login Logic
@@ -21,33 +46,8 @@ export const authService = {
     
     if (!authData.user) throw new Error('登录失败');
 
-    // Fetch extra profile data
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', authData.user.id)
-      .single();
-
-    if (profileError) {
-      console.warn('Profile missing, using fallback data:', profileError);
-      return {
-        id: authData.user.id,
-        email: authData.user.email,
-        name: email.split('@')[0],
-        avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${authData.user.id}`,
-        bio: '这个家伙很懒，什么都没写',
-        points: 100,
-        exp: 0, // Fallback exp
-        level: 1,
-        friends: 0,
-        coins: 100,
-        energy: 100,
-        maxEnergy: 100,
-        day: 1
-      };
-    }
-
-    return { ...profile, email: authData.user.email, exp: profile.exp || 0 } as User;
+    // 登录成功后，确保 Profile 存在
+    return this.ensureProfileExists(authData.user.id, authData.user.email || email);
   },
 
   // Register Logic (Real Email)
@@ -60,29 +60,31 @@ export const authService = {
 
     if (authError) throw new Error(authError.message);
     
-    // If sign up is successful but user is null, it usually means rate limit or config error
     if (!authData.user) throw new Error('注册请求失败');
 
     // 2. Create Initial Profile Entry
-    const defaultName = email.split('@')[0];
-    
-    const newUserProfile = {
+    // 尝试直接创建 Profile，如果这里失败了，用户下次登录时 ensureProfileExists 也会自动修复
+    const newProfile = {
       id: authData.user.id,
-      name: defaultName,
+      name: email.split('@')[0],
       avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${authData.user.id}`,
       bio: '新来的冒险家',
       points: 100,
-      exp: 0, // Initialize exp
+      exp: 0,
       level: 1,
-      friends: 0
+      friends: 0,
+      coins: 100,
+      energy: 100,
+      day: 1,
+      max_energy: 100 // 明确指定数据库字段名
     };
 
     const { error: dbError } = await supabase
       .from('profiles')
-      .insert([newUserProfile]);
+      .insert([newProfile]);
 
     if (dbError) {
-      console.error('Error creating profile:', dbError);
+      console.warn('Register: Profile creation failed (will be fixed on login):', dbError);
     }
   },
 
@@ -103,23 +105,21 @@ export const authService = {
 
     if (error) throw new Error(error.message);
     
-    // If data exists, return it
     if (data) {
-        return { ...data, exp: data.exp || 0 } as User;
+        return mapProfileToUser(data);
     }
 
-    // If no data returned (data is null), it means the profile row is missing.
+    // 如果更新时发现没有 Profile，则创建
     console.log("Profile missing during update, creating new one...");
+    const baseProfile = getDefaultProfile(userId, 'User');
+    const { maxEnergy, ...rest } = baseProfile;
     
-    const newProfile = {
-      id: userId,
-      name: updates.name || 'User',
-      avatar: updates.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${userId}`,
-      bio: updates.bio || '新来的冒险家',
-      points: 100,
-      exp: 0,
-      level: 1,
-      friends: 0
+    // 合并更新内容 & Map maxEnergy -> max_energy
+    const newProfile = { 
+        ...rest, 
+        ...updates, 
+        id: userId,
+        max_energy: maxEnergy // Use snake_case for DB
     };
 
     const { data: newData, error: insertError } = await supabase
@@ -130,7 +130,7 @@ export const authService = {
 
     if (insertError) throw new Error("修复档案失败: " + insertError.message);
     
-    return newData as User;
+    return mapProfileToUser(newData);
   },
 
   // Update Password
@@ -145,35 +145,52 @@ export const authService = {
     
     if (!session?.user) return null;
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
-
-    // Graceful fallback
-    if (!profile) {
-        return {
-            id: session.user.id,
-            email: session.user.email,
-            name: session.user.email?.split('@')[0] || 'User',
-            avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${session.user.id}`,
-            bio: '暂无介绍',
-            points: 100,
-            exp: 0,
-            level: 1,
-            friends: 0,
-            coins: 100,
-            energy: 100,
-            maxEnergy: 100,
-            day: 1
-        };
-    }
-    return { ...profile, email: session.user.email, exp: profile.exp || 0 } as User;
+    // 获取当前用户时，同样确保 Profile 存在
+    return this.ensureProfileExists(session.user.id, session.user.email || '');
   },
 
   // Logout
   async logout() {
     await supabase.auth.signOut();
+  },
+
+  // --- 核心方法：确保 Profile 存在，不存在则自动创建 ---
+  async ensureProfileExists(userId: string, email: string): Promise<User> {
+    // 1. 尝试查询
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+
+    // 2. 如果存在，直接返回
+    if (profile) {
+        return mapProfileToUser(profile, email);
+    }
+
+    // 3. 如果不存在，自动创建默认数据
+    console.log(`检测到用户 ${userId} 缺失档案数据，正在自动修复...`);
+    const appProfile = getDefaultProfile(userId, email);
+
+    // 转换: 将 appProfile (camelCase) 转换为 DB (snake_case)
+    // 主要是处理 maxEnergy -> max_energy，并移除 maxEnergy 键
+    const { maxEnergy, ...rest } = appProfile;
+    const dbProfile = {
+        ...rest,
+        max_energy: maxEnergy
+    };
+
+    const { error: insertError } = await supabase
+      .from('profiles')
+      .insert([dbProfile]);
+
+    if (insertError) {
+        console.error("自动创建档案失败:", insertError);
+        // 返回临时对象，虽然数据库写入失败，但防止前端白屏
+        return { ...appProfile, email };
+    }
+
+    console.log("档案自动修复成功。");
+    return { ...appProfile, email };
   }
 };

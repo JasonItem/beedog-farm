@@ -1,6 +1,23 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  name text,
+  avatar text,
+  points integer DEFAULT 100,
+  level integer DEFAULT 1,
+  friends integer DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  bio text,
+  exp integer DEFAULT 0,
+  coins bigint DEFAULT '100'::bigint,
+  energy bigint DEFAULT '100'::bigint,
+  day bigint DEFAULT '1'::bigint,
+  max_energy integer DEFAULT 100,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
 CREATE TABLE public.friendships (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   user_id uuid NOT NULL,
@@ -37,21 +54,4 @@ CREATE TABLE public.plots (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT plots_pkey PRIMARY KEY (id),
   CONSTRAINT plots_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
-);
-CREATE TABLE public.profiles (
-  id uuid NOT NULL,
-  name text,
-  avatar text,
-  points integer DEFAULT 100,
-  level integer DEFAULT 1,
-  friends integer DEFAULT 0,
-  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
-  bio text,
-  exp integer DEFAULT 0,
-  coins bigint DEFAULT '100'::bigint,
-  energy bigint DEFAULT '100'::bigint,
-  day bigint DEFAULT '1'::bigint,
-  max_energy integer DEFAULT 100,
-  CONSTRAINT profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );

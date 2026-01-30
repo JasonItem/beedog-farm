@@ -1,36 +1,27 @@
-
 import React, { useRef, useMemo, useLayoutEffect, Suspense, useState, useCallback } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, OrthographicCamera, Billboard, useTexture, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { Plot, MAP_COLS, ITEMS, MAP_ROWS } from '../types';
+import { Player, PlayerHandle } from './Player';
+import { findPath } from '../utils/pathfinding';
+import { RemotePlayerState } from '../services/game';
 
 // Fix for missing JSX types in this environment
 declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      group: any;
-      mesh: any;
-      instancedMesh: any;
-      planeGeometry: any;
-      meshBasicMaterial: any;
-      color: any;
+    namespace JSX {
+        interface IntrinsicElements {
+            [elemName: string]: any;
+        }
     }
-  }
 }
 
 const TILE_SIZE = 1;
-const TREE_URL = "https://zhkbcklljicjplxovutz.supabase.co/storage/v1/object/sign/mifenggou/tree.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9lZDc4OGQ0Ny0zOWIwLTRhNGMtYjI3Ni1lNGM0Yzc2M2IwZjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJtaWZlbmdnb3UvdHJlZS5wbmciLCJpYXQiOjE3Njk2MzIzNjQsImV4cCI6NDg5MTY5NjM2NH0.t5SzYhbeoeAvFn5Ho4PJP2IdqlTbRtZFMo8Xuwd5Wtk";
-const EMOTE_URL = "https://zhkbcklljicjplxovutz.supabase.co/storage/v1/object/sign/mifenggou/emote.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9lZDc4OGQ0Ny0zOWIwLTRhNGMtYjI3Ni1lNGM0Yzc2M2IwZjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJtaWZlbmdnb3UvZW1vdGUucG5nIiwiaWF0IjoxNzY5NjMzMjQyLCJleHAiOjQ4OTE2OTcyNDJ9.uZJd0bdmhirvBIEPqNUJIqwVP-94pQHmVNl3u2hIOeg";
-const STONE_URL = "https://zhkbcklljicjplxovutz.supabase.co/storage/v1/object/sign/mifenggou/stone.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9lZDc4OGQ0Ny0zOWIwLTRhNGMtYjI3Ni1lNGM0Yzc2M2IwZjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJtaWZlbmdnb3Uvc3RvbmUucG5nIiwiaWF0IjoxNzY5NjMzNTU5LCJleHAiOjQ4OTE2OTc1NTl9.S4bZncB6QSVmT4IjlDpd8pjabGzJxm3lTd2GYHB4GT4";
+const TREE_URL = "./tree.png";
+const EMOTE_URL = "./emote.png";
+const STONE_URL = "./stone.png";
+const WEED_URLS = ["./grass1.png", "./grass2.png", "./grass3.png"];
 
-const WEED_URLS = [
-    "https://zhkbcklljicjplxovutz.supabase.co/storage/v1/object/sign/mifenggou/grass1.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9lZDc4OGQ0Ny0zOWIwLTRhNGMtYjI3Ni1lNGM0Yzc2M2IwZjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJtaWZlbmdnb3UvZ3Jhc3MxLnBuZyIsImlhdCI6MTc2OTYzMjg0NCwiZXhwIjo0ODkxNjk2ODQ0fQ.hyFQ2DH7YJdbCAW0kJpbd-ZI5FeZZuXzmIRX_dfUeCs",
-    "https://zhkbcklljicjplxovutz.supabase.co/storage/v1/object/sign/mifenggou/grass2.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9lZDc4OGQ0Ny0zOWIwLTRhNGMtYjI3Ni1lNGM0Yzc2M2IwZjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJtaWZlbmdnb3UvZ3Jhc3MyLnBuZyIsImlhdCI6MTc2OTYzMjg3MywiZXhwIjo0ODkxNjk2ODczfQ.dXxU-ZUSKMQESEhs8HlCQsTDgRrHHMXpfT6OWXrkOrk",
-    "https://zhkbcklljicjplxovutz.supabase.co/storage/v1/object/sign/mifenggou/grass3.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9lZDc4OGQ0Ny0zOWIwLTRhNGMtYjI3Ni1lNGM0Yzc2M2IwZjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJtaWZlbmdnb3UvZ3Jhc3MzLnBuZyIsImlhdCI6MTc2OTYzMjg4NiwiZXhwIjo0ODkxNjk2ODg2fQ.9Z--gLrDjovYwdp--vj7MW2hrjuy0zNdfq2kXbfXPUg"
-];
-
-// --- 颜色定义 ---
 const COLORS = {
     grassTop: '#40b226',
     grassSide: '#428e2d',
@@ -43,17 +34,16 @@ const COLORS = {
     wood: '#795548',
 };
 
-// --- 地块层 (Instanced Mesh, 无光影) ---
-const InstancedBlockLayer = React.memo(({ 
-    type, 
-    plots, 
-    geometry, 
-    materialTop, 
-    materialSide
-}: { 
-    type: string, 
-    plots: Plot[], 
-    geometry: THREE.BufferGeometry, 
+const InstancedBlockLayer = React.memo(({
+                                            type,
+                                            plots,
+                                            geometry,
+                                            materialTop,
+                                            materialSide
+                                        }: {
+    type: string,
+    plots: Plot[],
+    geometry: THREE.BufferGeometry,
     materialTop: THREE.Material,
     materialSide: THREE.Material
 }) => {
@@ -62,11 +52,11 @@ const InstancedBlockLayer = React.memo(({
 
     const instancePlots = useMemo(() => {
         return plots.filter(p => {
-             if (type === 'grass') return p.type === 'grass' || p.type === 'wood' || p.type === 'weed' || p.type === 'stone';
-             if (type === 'soil_dry') return p.type === 'soil' && !p.isWatered;
-             if (type === 'soil_wet') return p.type === 'soil' && p.isWatered;
-             if (type === 'sand') return p.type === 'sand';
-             return false;
+            if (type === 'grass') return p.type === 'grass' || p.type === 'wood' || p.type === 'weed' || p.type === 'stone';
+            if (type === 'soil_dry') return p.type === 'soil' && !p.isWatered;
+            if (type === 'soil_wet') return p.type === 'soil' && p.isWatered;
+            if (type === 'sand') return p.type === 'sand';
+            return false;
         });
     }, [plots, type]);
 
@@ -82,11 +72,10 @@ const InstancedBlockLayer = React.memo(({
             const col = plot.id % MAP_COLS;
             const row = Math.floor(plot.id / MAP_COLS);
             let y = 0;
-            if (type.includes('soil')) y = 0.02; 
+            if (type.includes('soil')) y = 0.02;
             if (type === 'sand') y = -0.1;
             dummy.position.set(col * TILE_SIZE, y, row * TILE_SIZE);
-            const scaleXZ = 0.96;
-            dummy.scale.set(scaleXZ, type.includes('soil') ? 0.9 : (type === 'sand' ? 0.8 : 1), scaleXZ);
+            dummy.scale.set(1.0, type.includes('soil') ? 0.9 : (type === 'sand' ? 0.8 : 1), 1.0);
             dummy.updateMatrix();
             meshRef.current!.setMatrixAt(i, dummy.matrix);
         });
@@ -94,19 +83,18 @@ const InstancedBlockLayer = React.memo(({
     }, [instancePlots, dummy, type]);
 
     if (instancePlots.length === 0) return null;
-    return <instancedMesh ref={meshRef} args={[geometry, materials, instancePlots.length]} />;
+    return <instancedMesh ref={meshRef} args={[geometry, materials, instancePlots.length]} raycast={() => null} />;
 });
 
-// --- 2D Sprite Component (用于树木和作物) ---
-const PixelSprite = React.memo(({ 
-    imageUrl, 
-    position, 
-    scale = 1,
-    opacity = 1,
-    highlight = false 
-}: { 
-    imageUrl: string, 
-    position: [number, number, number], 
+const PixelSprite = React.memo(({
+                                    imageUrl,
+                                    position,
+                                    scale = 1,
+                                    opacity = 1,
+                                    highlight = false
+                                }: {
+    imageUrl: string,
+    position: [number, number, number],
     scale?: number | [number, number, number],
     opacity?: number,
     highlight?: boolean
@@ -114,37 +102,37 @@ const PixelSprite = React.memo(({
     const texture = useTexture(imageUrl);
     texture.minFilter = THREE.NearestFilter;
     texture.magFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
     texture.colorSpace = THREE.SRGBColorSpace;
-    
+
     const finalScale = Array.isArray(scale) ? scale : [scale, scale, scale] as [number, number, number];
     const isTransparent = opacity < 1;
 
     return (
         <Billboard position={position} follow={true} lockX={true} lockY={false} lockZ={true}>
-             <mesh scale={finalScale}>
+            <mesh scale={finalScale} raycast={() => null}>
                 <planeGeometry args={[1, 1]} />
-                <meshBasicMaterial 
-                    map={texture} 
-                    transparent 
+                <meshBasicMaterial
+                    map={texture}
+                    transparent
                     opacity={opacity}
-                    alphaTest={isTransparent ? 0 : 0.5} 
-                    depthWrite={!isTransparent} 
+                    alphaTest={isTransparent ? 0 : 0.5}
+                    depthWrite={!isTransparent}
                     side={THREE.DoubleSide}
                 />
             </mesh>
 
-            {/* 黄色描边/发光效果 (Selection Outline) */}
             {highlight && (
-                <mesh scale={[finalScale[0] * 1.1, finalScale[1] * 1.05, 1]} position={[0, 0, -0.05]}>
+                <mesh scale={[finalScale[0] * 1.1, finalScale[1] * 1.05, 1]} position={[0, 0, -0.05]} raycast={() => null}>
                     <planeGeometry args={[1, 1]} />
-                    <meshBasicMaterial 
+                    <meshBasicMaterial
                         map={texture}
                         transparent
                         color="#FFD700"
                         opacity={0.6}
                         depthWrite={false}
                         side={THREE.DoubleSide}
-                        blending={THREE.AdditiveBlending} 
+                        blending={THREE.AdditiveBlending}
                     />
                 </mesh>
             )}
@@ -152,52 +140,34 @@ const PixelSprite = React.memo(({
     );
 });
 
-// --- 成熟作物提示图标 (浮动动画) ---
 const ReadyIcon = React.memo(({ position }: { position: [number, number, number] }) => {
     const texture = useTexture(EMOTE_URL);
     useLayoutEffect(() => {
         texture.minFilter = THREE.NearestFilter;
         texture.magFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
         texture.colorSpace = THREE.SRGBColorSpace;
-        texture.needsUpdate = true;
     }, [texture]);
-    
+
     const meshRef = useRef<THREE.Mesh>(null);
-    
     useFrame((state) => {
         if (meshRef.current) {
-            // 上下浮动动画
-            const t = state.clock.elapsedTime;
-            meshRef.current.position.y = Math.sin(t * 5) * 0.1; 
+            meshRef.current.position.y = Math.sin(state.clock.elapsedTime * 5) * 0.1;
         }
     });
 
     return (
         <Billboard position={position} follow={true} lockX={true} lockZ={true}>
-            <mesh ref={meshRef} scale={0.7}>
+            <mesh ref={meshRef} scale={0.7} raycast={() => null}>
                 <planeGeometry args={[1, 1]} />
-                <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} depthTest={true} /> 
+                <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} depthTest={true} />
             </mesh>
         </Billboard>
     );
 });
 
-// --- 树木层 (Trees) ---
-const TreesLayer = React.memo(({ 
-    plots, 
-    hoveredPlotId, 
-    selectedPlotId 
-}: { 
-    plots: Plot[], 
-    hoveredPlotId: number | null, 
-    selectedPlotId: number | null 
-}) => {
-    useTexture(TREE_URL);
-
-    const treePlots = useMemo(() => {
-        return plots.filter(p => p.type === 'wood');
-    }, [plots]);
-
+const TreesLayer = React.memo(({ plots, hoveredPlotId, selectedPlotId }: { plots: Plot[], hoveredPlotId: number | null, selectedPlotId: number | null }) => {
+    const treePlots = useMemo(() => plots.filter(p => p.type === 'wood'), [plots]);
     const isOccluding = (treeId: number, targetId: number | null) => {
         if (targetId === null) return false;
         const tx = targetId % MAP_COLS;
@@ -215,16 +185,14 @@ const TreesLayer = React.memo(({
                 const col = plot.id % MAP_COLS;
                 const row = Math.floor(plot.id / MAP_COLS);
                 const shouldFade = isOccluding(plot.id, hoveredPlotId) || isOccluding(plot.id, selectedPlotId);
-                const isSelected = plot.id === selectedPlotId;
-
                 return (
-                    <PixelSprite 
-                        key={plot.id} 
-                        imageUrl={TREE_URL} 
-                        position={[col * TILE_SIZE, 1.85, row * TILE_SIZE]} 
-                        scale={[1.8, 3.0, 1]} 
+                    <PixelSprite
+                        key={plot.id}
+                        imageUrl={TREE_URL}
+                        position={[col * TILE_SIZE, 1.85, row * TILE_SIZE]}
+                        scale={[1.8, 3.0, 1]}
                         opacity={shouldFade ? 0.4 : 1.0}
-                        highlight={isSelected}
+                        highlight={plot.id === selectedPlotId}
                     />
                 );
             })}
@@ -232,149 +200,75 @@ const TreesLayer = React.memo(({
     );
 });
 
-// --- 杂草层 (Weeds) ---
-const WeedsLayer = React.memo(({ 
-    plots, 
-    selectedPlotId 
-}: { 
-    plots: Plot[], 
-    selectedPlotId: number | null 
-}) => {
-    WEED_URLS.forEach(url => useTexture(url));
-
-    const weedPlots = useMemo(() => {
-        return plots.filter(p => p.type === 'weed');
-    }, [plots]);
-
+const WeedsLayer = React.memo(({ plots, selectedPlotId }: { plots: Plot[], selectedPlotId: number | null }) => {
+    const weedPlots = useMemo(() => plots.filter(p => p.type === 'weed'), [plots]);
     return (
         <group>
-            {weedPlots.map(plot => {
-                const col = plot.id % MAP_COLS;
-                const row = Math.floor(plot.id / MAP_COLS);
-                // 使用 ID 生成伪随机索引，确保同一块地始终显示同一种草
-                const variant = (plot.id * 7 + 3) % 3;
-                const isSelected = plot.id === selectedPlotId;
-
-                return (
-                    <PixelSprite 
-                        key={plot.id} 
-                        imageUrl={WEED_URLS[variant]} 
-                        position={[col * TILE_SIZE, 0.9, row * TILE_SIZE]} // 高度设定在地面上方一点点
-                        scale={0.8}
-                        highlight={isSelected}
-                    />
-                );
-            })}
+            {weedPlots.map(plot => (
+                <PixelSprite
+                    key={plot.id}
+                    imageUrl={WEED_URLS[(plot.id * 7 + 3) % 3]}
+                    position={[(plot.id % MAP_COLS) * TILE_SIZE, 0.9, Math.floor(plot.id / MAP_COLS) * TILE_SIZE]}
+                    scale={0.8}
+                    highlight={plot.id === selectedPlotId}
+                />
+            ))}
         </group>
     );
 });
 
-// --- 石头层 (Rocks) ---
-const RocksLayer = React.memo(({ 
-    plots, 
-    selectedPlotId 
-}: { 
-    plots: Plot[], 
-    selectedPlotId: number | null 
-}) => {
-    useTexture(STONE_URL);
-
-    const stonePlots = useMemo(() => {
-        return plots.filter(p => p.type === 'stone');
-    }, [plots]);
-
+const RocksLayer = React.memo(({ plots, selectedPlotId }: { plots: Plot[], selectedPlotId: number | null }) => {
+    const stonePlots = useMemo(() => plots.filter(p => p.type === 'stone'), [plots]);
     return (
         <group>
-            {stonePlots.map(plot => {
-                const col = plot.id % MAP_COLS;
-                const row = Math.floor(plot.id / MAP_COLS);
-                const isSelected = plot.id === selectedPlotId;
-
-                return (
-                    <PixelSprite 
-                        key={plot.id} 
-                        imageUrl={STONE_URL} 
-                        position={[col * TILE_SIZE, 0.8, row * TILE_SIZE]} 
-                        scale={0.9}
-                        highlight={isSelected}
-                    />
-                );
-            })}
+            {stonePlots.map(plot => (
+                <PixelSprite
+                    key={plot.id}
+                    imageUrl={STONE_URL}
+                    position={[(plot.id % MAP_COLS) * TILE_SIZE, 0.8, Math.floor(plot.id / MAP_COLS) * TILE_SIZE]}
+                    scale={0.9}
+                    highlight={plot.id === selectedPlotId}
+                />
+            ))}
         </group>
     );
 });
 
-const CropsLayer = React.memo(({ 
-    plots, 
-    selectedPlotId 
-}: { 
-    plots: Plot[], 
-    selectedPlotId: number | null 
-}) => {
-    // 预加载贴图
-    useTexture(EMOTE_URL);
-    
+const CropsLayer = React.memo(({ plots, selectedPlotId }: { plots: Plot[], selectedPlotId: number | null }) => {
     const plantedPlots = plots.filter(p => p.type === 'soil' && (p.status === 'planted' || p.isWithered));
-
     return (
         <group>
             {plantedPlots.map(plot => {
                 const col = plot.id % MAP_COLS;
                 const row = Math.floor(plot.id / MAP_COLS);
-                
                 let imgUrl = '';
-                if (plot.isWithered) {
-                    imgUrl = ITEMS['dead_crop'].imageUrl;
-                } else if (plot.seedId) {
+                if (plot.isWithered) imgUrl = ITEMS['dead_crop'].imageUrl;
+                else if (plot.seedId) {
                     const itemDef = ITEMS[plot.seedId];
                     if (itemDef) {
                         const totalDays = itemDef.growthDays || 1;
-                        if (plot.daysPlanted >= totalDays) {
-                            const cropId = plot.seedId.replace('seed_', 'crop_');
-                            imgUrl = ITEMS[cropId]?.imageUrl || itemDef.imageUrl;
-                        } else {
+                        if (plot.daysPlanted >= totalDays) imgUrl = ITEMS[plot.seedId.replace('seed_', 'crop_')]?.imageUrl || itemDef.imageUrl;
+                        else {
                             const stages = itemDef.growthStages || [];
-                            if (stages.length > 0) {
-                                const growingStageCount = Math.max(1, stages.length - 1); 
-                                const stageIndex = Math.min(growingStageCount - 1, Math.floor((plot.daysPlanted / totalDays) * growingStageCount));
-                                imgUrl = stages[stageIndex];
-                            } else {
-                                imgUrl = itemDef.imageUrl;
-                            }
+                            if (stages.length > 0) imgUrl = stages[Math.min(stages.length - 2, Math.floor((plot.daysPlanted / totalDays) * (stages.length - 1)))];
+                            else imgUrl = itemDef.imageUrl;
                         }
                     }
                 }
-
                 if (!imgUrl) return null;
-                const isSelected = plot.id === selectedPlotId;
                 const isMature = plot.status === 'planted' && !plot.isWithered && plot.seedId && plot.daysPlanted >= (ITEMS[plot.seedId]?.growthDays || 99);
-
                 return (
-                     <React.Fragment key={plot.id}>
-                        <PixelSprite 
-                            imageUrl={imgUrl} 
-                            position={[col * TILE_SIZE, 0.7, row * TILE_SIZE]} 
-                            highlight={isSelected}
-                        />
-                        {isMature && (
-                            <ReadyIcon position={[col * TILE_SIZE, 1.5, row * TILE_SIZE]} />
-                        )}
-                     </React.Fragment>
+                    <React.Fragment key={plot.id}>
+                        <PixelSprite imageUrl={imgUrl} position={[col * TILE_SIZE, 0.7, row * TILE_SIZE]} highlight={plot.id === selectedPlotId} />
+                        {isMature && <ReadyIcon position={[col * TILE_SIZE, 1.5, row * TILE_SIZE]} />}
+                    </React.Fragment>
                 );
             })}
         </group>
     );
 });
 
-const MapRenderer = React.memo(({ 
-    plots, 
-    hoveredPlotId, 
-    selectedPlotId 
-}: { 
-    plots: Plot[],
-    hoveredPlotId: number | null,
-    selectedPlotId: number | null
-}) => {
+const MapRenderer = React.memo(({ plots, hoveredPlotId, selectedPlotId }: { plots: Plot[], hoveredPlotId: number | null, selectedPlotId: number | null }) => {
     const boxGeo = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
     const matGrassTop = useMemo(() => new THREE.MeshBasicMaterial({ color: COLORS.grassTop }), []);
     const matGrassSide = useMemo(() => new THREE.MeshBasicMaterial({ color: COLORS.grassSide }), []);
@@ -384,139 +278,167 @@ const MapRenderer = React.memo(({
     const matSandTop = useMemo(() => new THREE.MeshBasicMaterial({ color: COLORS.sandTop }), []);
     const matSandSide = useMemo(() => new THREE.MeshBasicMaterial({ color: COLORS.sandSide }), []);
 
-    const selectedPlot = selectedPlotId !== null ? plots.find(p => p.id === selectedPlotId) : null;
-    const isRockSelected = selectedPlot?.type === 'stone';
-
     return (
         <group>
             <InstancedBlockLayer type="grass" plots={plots} geometry={boxGeo} materialTop={matGrassTop} materialSide={matGrassSide} />
             <InstancedBlockLayer type="soil_dry" plots={plots} geometry={boxGeo} materialTop={matSoilTop} materialSide={matSoilSide} />
             <InstancedBlockLayer type="soil_wet" plots={plots} geometry={boxGeo} materialTop={matSoilWetTop} materialSide={matSoilSide} />
             <InstancedBlockLayer type="sand" plots={plots} geometry={boxGeo} materialTop={matSandTop} materialSide={matSandSide} />
-            
             <Suspense fallback={null}>
-                <TreesLayer 
-                    plots={plots} 
-                    hoveredPlotId={hoveredPlotId} 
-                    selectedPlotId={selectedPlotId} 
-                />
-                <WeedsLayer 
-                    plots={plots} 
-                    selectedPlotId={selectedPlotId} 
-                />
-                <RocksLayer 
-                    plots={plots} 
-                    selectedPlotId={selectedPlotId} 
-                />
-            </Suspense>
-            
-            <Suspense fallback={null}>
+                <TreesLayer plots={plots} hoveredPlotId={hoveredPlotId} selectedPlotId={selectedPlotId} />
+                <WeedsLayer plots={plots} selectedPlotId={selectedPlotId} />
+                <RocksLayer plots={plots} selectedPlotId={selectedPlotId} />
                 <CropsLayer plots={plots} selectedPlotId={selectedPlotId} />
             </Suspense>
         </group>
     );
 });
 
-// --- 悬停高亮光标 (遮罩风格) ---
-const HoverCursor = ({ position }: { position: [number, number, number] | null }) => {
-    if (!position) return null;
-    return (
-        <group position={position}>
-            <mesh position={[0, 0.51, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                <planeGeometry args={[1, 1]} />
-                <meshBasicMaterial color="#FCD34D" transparent opacity={0.4} />
-            </mesh>
-        </group>
-    );
-};
-
-// --- 选中框组件 (遮罩风格，无边框) ---
-const SelectionCursor = ({ selectedPlotId }: { selectedPlotId: number | null }) => {
-    if (selectedPlotId === null) return null;
-    const col = selectedPlotId % MAP_COLS;
-    const row = Math.floor(selectedPlotId / MAP_COLS);
-    return (
-        <group position={[col * TILE_SIZE, 0, row * TILE_SIZE]}>
-             <mesh position={[0, 0.515, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                <planeGeometry args={[1, 1]} />
-                <meshBasicMaterial color="#FCD34D" transparent opacity={0.4} />
-            </mesh>
-        </group>
-    );
-};
-
 interface SceneProps {
     plots: Plot[];
     selectedPlotId: number | null;
+    playerName?: string;
     onSelectPlot: (id: number | null) => void;
+    // 多人同步 props
+    remotePlayers?: RemotePlayerState[];
+    onLocalMove?: (moveData: { x: number, z: number, direction: string, action: string }) => void;
+    farmOwnerId?: string;
+    isVisiting?: boolean; // 新增：当前是否处于参观模式
 }
 
-const Scene3D: React.FC<SceneProps> = ({ plots, selectedPlotId, onSelectPlot }) => {
+const Scene3D: React.FC<SceneProps> = ({
+                                           plots,
+                                           selectedPlotId,
+                                           playerName,
+                                           onSelectPlot,
+                                           remotePlayers = [],
+                                           onLocalMove,
+                                           farmOwnerId,
+                                           isVisiting = false
+                                       }) => {
     const centerX = (MAP_COLS * TILE_SIZE) / 2 - 0.5;
     const centerZ = (MAP_ROWS * TILE_SIZE) / 2 - 0.5;
-    const SKY_COLOR = '#87CEEB'; 
-
     const [hoveredPlotId, setHoveredPlotId] = useState<number | null>(null);
-    const camOffset = 100;
-    const camPos: [number, number, number] = [centerX + camOffset, camOffset * 1.414, centerZ + camOffset];
+    const playerRef = useRef<PlayerHandle>(null);
 
     const handlePointerMove = useCallback((e: any) => {
         const x = Math.round(e.point.x);
         const z = Math.round(e.point.z);
-        const id = z * MAP_COLS + x;
-        if (id !== hoveredPlotId) {
-             if (x >= 0 && x < MAP_COLS && z >= 0 && z < MAP_ROWS) {
-                 setHoveredPlotId(id);
-             } else {
-                 setHoveredPlotId(null);
-             }
+        // 增加严格的边界检查
+        if (x >= 0 && x < MAP_COLS && z >= 0 && z < MAP_ROWS) {
+            const id = z * MAP_COLS + x;
+            if (id !== hoveredPlotId) setHoveredPlotId(id);
+        } else {
+            setHoveredPlotId(null);
         }
     }, [hoveredPlotId]);
 
-    const handlePointerDown = useCallback((e: any) => {}, []);
-    
     const handleClick = useCallback((e: any) => {
-        const x = Math.round(e.point.x);
-        const z = Math.round(e.point.z);
-        const id = z * MAP_COLS + x;
-        if (x >= 0 && x < MAP_COLS && z >= 0 && z < MAP_ROWS) {
-             onSelectPlot(id);
-        } else {
-             onSelectPlot(null);
+        const targetPoint = e.point;
+        const endX = Math.round(targetPoint.x);
+        const endZ = Math.round(targetPoint.z);
+
+        // 边界检查，防止点击地图外导致异常位移
+        if (endX < 0 || endX >= MAP_COLS || endZ < 0 || endZ >= MAP_ROWS) {
+            onSelectPlot(null);
+            return;
         }
-    }, [onSelectPlot]);
+
+        const id = endZ * MAP_COLS + endX;
+        onSelectPlot(null);
+
+        if (playerRef.current) {
+            const startX = Math.round(playerRef.current.position.x);
+            const startZ = Math.round(playerRef.current.position.z);
+
+            // 如果点击的是脚下地块，直接选中
+            if (startX === endX && startZ === endZ) {
+                onSelectPlot(id);
+                return;
+            }
+
+            const pathPoints = findPath({ x: startX, y: startZ }, { x: endX, y: endZ }, plots);
+            if (pathPoints) {
+                const pathVectors = pathPoints.map(p => new THREE.Vector3(p.x, 0, p.y));
+                playerRef.current.walkTo(pathVectors, () => {
+                    // 到达后再次确认是否在范围内
+                    if (endX >= 0 && endX < MAP_COLS && endZ >= 0 && endZ < MAP_ROWS) {
+                        onSelectPlot(id);
+                    }
+                });
+            }
+        }
+    }, [onSelectPlot, plots]);
 
     const hoveredPos: [number, number, number] | null = useMemo(() => {
         if (hoveredPlotId === null) return null;
-        const col = hoveredPlotId % MAP_COLS;
-        const row = Math.floor(hoveredPlotId / MAP_COLS);
-        return [col * TILE_SIZE, 0, row * TILE_SIZE];
+        return [(hoveredPlotId % MAP_COLS) * TILE_SIZE, 0, Math.floor(hoveredPlotId / MAP_COLS) * TILE_SIZE];
     }, [hoveredPlotId]);
 
     return (
         <Canvas dpr={[1, 1.5]} className="w-full h-full bg-[#87CEEB]" onPointerMissed={() => onSelectPlot(null)}>
-            <color attach="background" args={[SKY_COLOR]} />
-            <OrthographicCamera makeDefault position={camPos} zoom={40} near={-500} far={2000} onUpdate={c => c.lookAt(centerX, 0, centerZ)} />
-            <OrbitControls 
-                enableRotate={true} 
-                enableZoom={true} 
-                minZoom={10} 
+            <color attach="background" args={['#87CEEB']} />
+            <OrthographicCamera makeDefault position={[centerX + 40, 56, centerZ + 40]} zoom={40} near={-500} far={2000} onUpdate={c => c.lookAt(centerX, 0, centerZ)} />
+            <OrbitControls
+                enableRotate={false}
+                enableZoom={true}
+                minZoom={20}
                 maxZoom={80}
                 target={[centerX, 0, centerZ]}
                 dampingFactor={0.2}
-                mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }}
+                mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null }}
+                touches={{ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }}
             />
+
+            <Suspense fallback={null}>
+                {/* 本地玩家 */}
+                <Player
+                    ref={playerRef}
+                    initialPos={[centerX, 0, centerZ]}
+                    playerName={playerName}
+                    onPositionChange={onLocalMove}
+                    isOwner={!isVisiting}
+                />
+
+                {/* 远程玩家们 */}
+                {remotePlayers.map(p => (
+                    <Player
+                        key={p.id}
+                        isRemote
+                        externalState={p}
+                        playerName={p.name}
+                        isOwner={p.id === farmOwnerId}
+                    />
+                ))}
+            </Suspense>
+
+            {/* 点击层：确保它是唯一接收 pointer 事件的层 */}
             <mesh position={[centerX, 0.5, centerZ]} rotation={[-Math.PI / 2, 0, 0]} onPointerMove={handlePointerMove} onClick={handleClick}>
-                <planeGeometry args={[3000, 3000]} />
-                <meshBasicMaterial visible={false} /> 
+                <planeGeometry args={[MAP_COLS * TILE_SIZE, MAP_ROWS * TILE_SIZE]} />
+                <meshBasicMaterial visible={false} />
             </mesh>
-             <mesh position={[centerX, -0.65, centerZ]} rotation={[-Math.PI / 2, 0, 0]}>
+
+            <mesh position={[centerX, -0.65, centerZ]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
                 <planeGeometry args={[3000, 3000]} />
                 <meshBasicMaterial color="#29B6F6" />
             </mesh>
+
             <MapRenderer plots={plots} hoveredPlotId={hoveredPlotId} selectedPlotId={selectedPlotId} />
-            <HoverCursor position={hoveredPos} />
-            <SelectionCursor selectedPlotId={selectedPlotId} />
+
+            {hoveredPos && (
+                <group position={hoveredPos}>
+                    <mesh position={[0, 0.51, 0]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+                        <planeGeometry args={[1, 1]} /><meshBasicMaterial color="#FCD34D" transparent opacity={0.4} />
+                    </mesh>
+                </group>
+            )}
+            {selectedPlotId !== null && (
+                <group position={[(selectedPlotId % MAP_COLS) * TILE_SIZE, 0, Math.floor(selectedPlotId / MAP_COLS) * TILE_SIZE]}>
+                    <mesh position={[0, 0.515, 0]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+                        <planeGeometry args={[1, 1]} /><meshBasicMaterial color="#FCD34D" transparent opacity={0.4} />
+                    </mesh>
+                </group>
+            )}
         </Canvas>
     );
 };
