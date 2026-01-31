@@ -1,6 +1,6 @@
 
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase';
-import { Plot, InventoryItem, PlotType, MAP_COLS, MAP_ROWS, Friend, User } from '../types';
+import { Plot, InventoryItem, PlotType, MAP_COLS, MAP_ROWS, Friend, User, TreeType } from '../types';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 // --- Perlin Noise Implementation ---
@@ -49,47 +49,110 @@ const perlin = new Perlin();
 const generateInitialPlots = (userId: string) => {
     const centerX = MAP_COLS / 2;
     const centerY = MAP_ROWS / 2;
-    const seed = Math.random() * 100;
+    const seed = Math.random() * 1000;
 
-    return Array.from({ length: MAP_COLS * MAP_ROWS }, (_, i) => {
+    const plots: Plot[] = [];
+
+    // 第一遍：生成基础地形和地貌 (移除了房子相关的 SafeZone 检查)
+    for (let i = 0; i < MAP_COLS * MAP_ROWS; i++) {
         const col = i % MAP_COLS;
         const row = Math.floor(i / MAP_COLS);
+
         const nx = (col - centerX) / (centerX * 0.95);
         const ny = (row - centerY) / (centerY * 0.95);
         const d = Math.sqrt(nx * nx + ny * ny);
 
-        const scale = 0.1;
-        let noiseVal = perlin.noise(col * scale + seed, row * scale + seed, 0) * 1.0;
-        noiseVal += perlin.noise(col * 0.2 + seed, row * 0.2 + seed, 10) * 0.5;
+        const scale = 0.08;
+        let noiseVal = perlin.noise(col * scale + seed, row * scale + seed, 0);
+        let elevation = (noiseVal * 0.8 + 0.6) - (Math.pow(d, 3) * 1.8);
 
-        let elevation = (noiseVal * 0.8 + 0.6) - (Math.pow(d, 3) * 2.0);
         let type: PlotType = 'water';
+        if (elevation < -0.1) type = 'water';
+        else if (elevation < 0.05) type = 'sand';
+        else type = 'grass';
 
-        if (elevation < -0.1) { type = 'water'; }
-        else if (elevation < 0.05) { type = 'sand'; }
-        else if (elevation < 0.4) {
-            type = 'grass';
-            const decorNoise = Math.random();
-            if (decorNoise > 0.96) type = 'stone';
-            else if (decorNoise > 0.92) type = 'weed';
-        } else {
-            const treeNoise = Math.random();
-            type = (treeNoise > 0.8) ? 'wood' : 'grass';
+        plots.push({
+            id: i, type: type, isUnlocked: true, status: 'empty',
+            daysPlanted: 0, isWatered: false, isWithered: false,
+            isWalkable: type !== 'water', variation: 0
+        });
+    }
+
+    // 第二遍：稀疏散布树木
+    for (let i = 0; i < plots.length; i++) {
+        const col = i % MAP_COLS;
+        const row = Math.floor(i / MAP_COLS);
+        if (plots[i].type !== 'grass') continue;
+
+        const treeNoise = Math.random();
+        if (treeNoise > 0.975) {
+            let canPlace = true;
+            for (let dr = -2; dr <= 2; dr++) {
+                for (let dc = -2; dc <= 2; dc++) {
+                    const nr = row + dr, nc = col + dc;
+                    if (nr >= 0 && nr < MAP_ROWS && nc >= 0 && nc < MAP_COLS) {
+                        if (plots[nr * MAP_COLS + nc].type === 'wood') {
+                            canPlace = false; break;
+                        }
+                    }
+                }
+                if (!canPlace) break;
+            }
+
+            if (canPlace) {
+                plots[i].type = 'wood';
+                plots[i].isWalkable = false;
+                const typeRand = Math.random();
+                plots[i].treeType = typeRand > 0.7 ? 'ordinary' : (typeRand > 0.3 ? 'fruit' : 'birch');
+                plots[i].treeStage = 2;
+                plots[i].daysGrown = 0;
+            }
         }
+    }
 
-        if (d < 0.1) type = 'grass';
+    // 第三遍：在草地上散布石头和杂草
+    for (let i = 0; i < plots.length; i++) {
+        if (plots[i].type !== 'grass') continue;
 
-        return {
-            id: i,
-            type: type,
-            isUnlocked: true,
-            status: 'empty' as const,
-            seedId: undefined,
-            daysPlanted: 0,
-            isWatered: false,
-            isWithered: false
-        };
-    });
+        const decorNoise = Math.random();
+        if (decorNoise > 0.96) {
+            plots[i].type = 'stone';
+            plots[i].isWalkable = false;
+            const r = Math.random();
+            plots[i].variation = r > 0.8 ? 2 : (r > 0.4 ? 1 : 0);
+        } else if (decorNoise > 0.92) {
+            plots[i].type = 'weed';
+            plots[i].variation = Math.floor(Math.random() * 3);
+        } else if (decorNoise > 0.82) {
+            // 散落草地装饰物 (1-6)
+            plots[i].grassDecor = Math.floor(Math.random() * 6) + 1;
+        }
+    }
+
+    // 第四遍：视觉清理
+    for (let i = 0; i < plots.length; i++) {
+        if (plots[i].type === 'wood') {
+            const col = i % MAP_COLS;
+            const row = Math.floor(i / MAP_COLS);
+            for (let dr = -2; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = row + dr, nc = col + dc;
+                    if (nr >= 0 && nr < MAP_ROWS && nc >= 0 && nc < MAP_COLS) {
+                        const target = plots[nr * MAP_COLS + nc];
+                        if (target.type === 'stone' || target.type === 'weed' || target.grassDecor) {
+                            target.type = 'grass';
+                            target.isWalkable = true;
+                            target.variation = 0;
+                            target.grassDecor = undefined;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return plots;
 };
 
 let channel: RealtimeChannel | null = null;
@@ -168,9 +231,6 @@ export const gameService = {
             });
     },
 
-    /**
-     * 更新 Presence 必须要求传入完整身份信息，防止 track 覆盖导致数据丢失
-     */
     async updatePresenceMetadata(currentUser: User, moveData: Partial<RemotePlayerState>) {
         if (!channel) return;
         await channel.track({
@@ -263,7 +323,10 @@ export const gameService = {
                     seedId: p.seed_id,
                     daysPlanted: p.days_planted,
                     isWatered: p.is_watered,
-                    isWithered: false
+                    isWithered: false,
+                    isWalkable: !['wood', 'stone', 'water'].includes(p.type as PlotType),
+                    variation: p.variation !== undefined && p.variation !== null ? p.variation : (p.type === 'stone' ? Math.floor(Math.random()*3) : 0),
+                    grassDecor: p.grass_decor // 假如数据库已有该字段
                 }));
             } else {
                 if (isOwner) {

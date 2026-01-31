@@ -1,4 +1,3 @@
-
 import { Plot, MAP_COLS, MAP_ROWS } from '../types';
 
 interface Point { x: number; y: number; }
@@ -7,7 +6,7 @@ const heuristic = (x1: number, y1: number, x2: number, y2: number) => {
     return Math.abs(x1 - x2) + Math.abs(y1 - y2);
 };
 
-// 视线检查：判断两点间是否有障碍物（水、木、石）
+// 视线检查：判断两点间是否有障碍物
 const isWalkableLine = (p1: Point, p2: Point, plots: Plot[]) => {
     let x0 = p1.x, y0 = p1.y;
     const x1 = p2.x, y1 = p2.y;
@@ -20,7 +19,8 @@ const isWalkableLine = (p1: Point, p2: Point, plots: Plot[]) => {
     while (true) {
         const idx = y0 * MAP_COLS + x0;
         const p = plots[idx];
-        if (p && ['wood', 'stone', 'water'].includes(p.type)) return false;
+        // 核心修改：使用 isWalkable 属性判断
+        if (p && !p.isWalkable) return false;
 
         if (x0 === x1 && y0 === y1) break;
         const e2 = 2 * err;
@@ -38,7 +38,6 @@ const simplifyPath = (path: Point[], plots: Plot[]) => {
 
     while (current < path.length - 1) {
         let bestVisible = current + 1;
-        // 尝试探测最远可直线到达的点
         for (let i = current + 2; i < path.length; i++) {
             if (isWalkableLine(path[current], path[i], plots)) {
                 bestVisible = i;
@@ -57,15 +56,43 @@ export const findPath = (start: Point, end: Point, plots: Plot[]): Point[] | nul
 
     const size = MAP_COLS * MAP_ROWS;
     const startIdx = start.y * MAP_COLS + start.x;
-    const endIdx = end.y * MAP_COLS + end.x;
+    let endIdx = end.y * MAP_COLS + end.x;
 
     const isWalkable = (idx: number) => {
         if (idx < 0 || idx >= size) return false;
         const p = plots[idx];
-        return p && !['wood', 'stone', 'water'].includes(p.type);
+        // 优先使用 isWalkable 属性，如果没有则回退到类型判断
+        return p && p.isWalkable;
     };
 
-    if (!isWalkable(endIdx)) return null;
+    // 如果目标点本身不可通行（如房子墙壁、树木、石头），则寻找周围最近的可通行点
+    if (!isWalkable(endIdx)) {
+        const neighbors = [
+            { x: end.x, y: end.y - 1 },
+            { x: end.x, y: end.y + 1 },
+            { x: end.x - 1, y: end.y },
+            { x: end.x + 1, y: end.y }
+        ];
+
+        let bestNeighbor: Point | null = null;
+        let minDist = Infinity;
+
+        for (const n of neighbors) {
+            const nIdx = n.y * MAP_COLS + n.x;
+            if (isWalkable(nIdx)) {
+                const d = heuristic(start.x, start.y, n.x, n.y);
+                if (d < minDist) {
+                    minDist = d;
+                    bestNeighbor = n;
+                }
+            }
+        }
+
+        if (!bestNeighbor) return null;
+        endIdx = bestNeighbor.y * MAP_COLS + bestNeighbor.x;
+        end = bestNeighbor;
+    }
+
     if (startIdx === endIdx) return [start];
 
     const gScore = new Float32Array(size).fill(Infinity);
